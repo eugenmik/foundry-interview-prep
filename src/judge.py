@@ -21,6 +21,7 @@ def judge_answer(
     resume_context: str,
     lang: str,
     model: str = "openai/gpt-5-mini",
+    reasoning_effort: str | None = "low",
 ) -> dict[str, Any]:
     """Score one answer and return structured feedback.
 
@@ -45,18 +46,20 @@ def judge_answer(
         f"CANDIDATE ANSWER:\n{answer}\n\n"
         f"RESUME CONTEXT (for relevance):\n{resume_context[:2000]}"
     )
-    result = orc.chat(
+    data, result = orc.chat_json(
         messages=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
+        parser=schemas.parse_json,
         model=model,
         temperature=0.1,      # low temperature -> consistent grading
         top_p=0.9,
-        max_tokens=700,
-        json_mode=True,
+        # gpt-5 reasoning tokens count toward this budget; keep enough room
+        # for the model_answer field on top of hidden reasoning.
+        max_tokens=1800,
+        reasoning_effort=reasoning_effort,
     )
-    data = schemas.parse_json(result.text)
     return {
         "score": data.get("score", "—"),
         "verdict": str(data.get("verdict", "")),

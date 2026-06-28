@@ -97,7 +97,13 @@ with st.sidebar:
         top_p = st.slider(t(lang, "top_p"), 0.0, 1.0, 1.0, 0.05)
         frequency_penalty = st.slider(t(lang, "frequency_penalty"), -2.0, 2.0, 0.0, 0.1)
         presence_penalty = st.slider(t(lang, "presence_penalty"), -2.0, 2.0, 0.0, 0.1)
-        max_tokens = st.slider(t(lang, "max_tokens"), 256, 4000, 1400, 64)
+        # Minimum kept high: gpt-5 models spend hidden reasoning tokens, so a
+        # low cap can leave no room for the actual (esp. JSON) answer.
+        max_tokens = st.slider(t(lang, "max_tokens"), 512, 6000, 2000, 128)
+        reasoning_effort = st.selectbox(
+            "Reasoning effort (gpt-5)", ["low", "medium", "high"], index=0,
+            help="Hidden reasoning depth. 'low' is faster and cheaper.",
+        )
         n_questions = st.slider("Number of questions", 4, 12, 8, 1)
         persona = st.selectbox(
             "Interviewer persona", list(prompts.INTERVIEWER_PERSONAS.keys())
@@ -183,32 +189,32 @@ if st.button("🚀 " + t(lang, "analyze_btn"), type="primary"):
         try:
             # JSON output #1: resume analysis
             with st.spinner(t(lang, "analyzing")):
-                res = orc.chat(
+                data, res = orc.chat_json(
                     prompts.analysis_messages(resume_text, role, lang),
+                    parser=schemas.parse_json,
                     model=model, temperature=temperature, top_p=top_p,
                     frequency_penalty=frequency_penalty,
                     presence_penalty=presence_penalty,
-                    max_tokens=max_tokens, json_mode=True,
+                    max_tokens=max_tokens, reasoning_effort=reasoning_effort,
                 )
                 track_cost(res)
-                st.session_state.analysis = schemas.normalize_analysis(
-                    schemas.parse_json(res.text)
-                )
+                st.session_state.analysis = schemas.normalize_analysis(data)
 
             # JSON output #2: tailored questions (technique-driven)
             with st.spinner(t(lang, "generating")):
-                res = orc.chat(
+                data, res = orc.chat_json(
                     prompts.questions_messages(
                         resume_text, role, seniority, difficulty, lang,
                         technique, n_questions, rag_ctx,
                     ),
+                    parser=schemas.parse_json,
                     model=model, temperature=temperature, top_p=top_p,
                     frequency_penalty=frequency_penalty,
                     presence_penalty=presence_penalty,
-                    max_tokens=max_tokens, json_mode=True,
+                    max_tokens=max_tokens, reasoning_effort=reasoning_effort,
                 )
                 track_cost(res)
-                questions = schemas.normalize_questions(schemas.parse_json(res.text))
+                questions = schemas.normalize_questions(data)
                 # Hard task: vector store de-duplication of prep items.
                 seen_store = rag.SeenStore()
                 fresh = set(seen_store.check_and_add([q["question"] for q in questions]))
@@ -219,13 +225,14 @@ if st.button("🚀 " + t(lang, "analyze_btn"), type="primary"):
             # Recruiter mode: also build interviewer guide + scorecard
             if mode == "recruiter":
                 with st.spinner(t(lang, "generating")):
-                    res = orc.chat(
+                    data, res = orc.chat_json(
                         prompts.recruiter_guide_messages(resume_text, role, lang),
+                        parser=schemas.parse_json,
                         model=model, temperature=temperature, max_tokens=max_tokens,
-                        json_mode=True,
+                        reasoning_effort=reasoning_effort,
                     )
                     track_cost(res)
-                    st.session_state.recruiter_guide = schemas.parse_json(res.text)
+                    st.session_state.recruiter_guide = data
 
             # Seed the mock interview system prompt for the chat below.
             st.session_state.interview_system = prompts.interview_system_prompt(
@@ -317,7 +324,7 @@ if mode == "candidate" and st.session_state.interview_system:
                     [{"role": "system", "content": st.session_state.interview_system},
                      {"role": "user", "content": "Begin the interview with your first question."}],
                     model=model, temperature=temperature, top_p=top_p,
-                    max_tokens=max_tokens,
+                    max_tokens=max_tokens, reasoning_effort=reasoning_effort,
                 )
                 track_cost(res)
                 st.session_state.chat.append({"role": "assistant", "content": res.text})
@@ -338,6 +345,7 @@ if mode == "candidate" and st.session_state.interview_system:
                         messages, model=model, temperature=temperature, top_p=top_p,
                         frequency_penalty=frequency_penalty,
                         presence_penalty=presence_penalty, max_tokens=max_tokens,
+                        reasoning_effort=reasoning_effort,
                     )
                     track_cost(res)
                     st.session_state.chat.append({"role": "assistant", "content": res.text})
@@ -365,7 +373,7 @@ if mode == "candidate" and st.session_state.interview_system:
                             q_for_answer = st.session_state.chat[idx - 1]["content"]
                         break
                 st.session_state.judge_result = judge_mod.judge_answer(
-                    q_for_answer, last_user, resume_text, lang, model
+                    q_for_answer, last_user, resume_text, lang, model, reasoning_effort
                 )
         except (orc.OpenRouterError, ValueError) as exc:
             st.error(f"Judge error: {exc}")

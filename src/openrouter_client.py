@@ -78,12 +78,17 @@ def chat(
     presence_penalty: float = 0.0,
     max_tokens: int = 1200,
     json_mode: bool = False,
+    reasoning_effort: str | None = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> ChatResult:
     """Call the chat-completions endpoint and return text + token usage.
 
     When ``json_mode`` is True we request a JSON object response so the
     structured-output features can parse the result reliably.
+
+    ``reasoning_effort`` ("low"/"medium"/"high") controls how many hidden
+    reasoning tokens gpt-5 models spend. "low" is faster and cheaper and is a
+    good default for this app's mostly-structured tasks.
     """
     payload: dict[str, Any] = {
         "model": model,
@@ -96,6 +101,8 @@ def chat(
     }
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    if reasoning_effort:
+        payload["reasoning"] = {"effort": reasoning_effort}
 
     try:
         resp = requests.post(
@@ -127,6 +134,50 @@ def chat(
         model=data.get("model", model),
         raw=data,
     )
+
+
+def chat_json(
+    messages: list[dict[str, str]],
+    parser,
+    *,
+    retries: int = 2,
+    **kwargs: Any,
+) -> tuple[Any, ChatResult]:
+    """Call chat in JSON mode and parse the result, retrying on bad JSON.
+
+    ``parser`` is a callable taking the raw text and returning a Python object
+    (it should raise ValueError on invalid JSON). gpt-5 models very
+    occasionally emit slightly malformed JSON even in json mode, so we retry
+    with a corrective nudge before giving up.
+
+    Returns (parsed_object, last_ChatResult). Raises OpenRouterError on API
+    failure or ValueError if parsing still fails after all retries.
+    """
+    kwargs.setdefault("json_mode", True)
+    convo = list(messages)
+    last_exc: Exception | None = None
+    result: ChatResult | None = None
+    for attempt in range(retries + 1):
+        result = chat(convo, **kwargs)
+        try:
+            return parser(result.text), result
+        except ValueError as exc:
+            last_exc = exc
+            # If the output was truncated, re-asking with the same budget will
+            # truncate again — bail out with an actionable error instead.
+            finish = (result.raw.get("choices", [{}])[0] or {}).get("finish_reason")
+            if finish == "length":
+                raise ValueError(
+                    "Model output was truncated (hit max_tokens). Increase the "
+                    "Max tokens setting or lower the Reasoning effort."
+                ) from exc
+            convo = convo + [
+                {"role": "assistant", "content": result.text},
+                {"role": "user", "content":
+                    "That was not valid JSON. Reply again with ONLY a single "
+                    "valid JSON object and nothing else."},
+            ]
+    raise ValueError(f"Model did not return valid JSON after {retries + 1} attempts: {last_exc}")
 
 
 def embed(texts: list[str], model: str = EMBEDDING_MODEL,

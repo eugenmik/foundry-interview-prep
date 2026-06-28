@@ -115,7 +115,9 @@ def llm_moderation(text: str, model: str = "openai/gpt-5-nano") -> GuardResult:
             ],
             model=model,
             temperature=0.0,
-            max_tokens=40,
+            # gpt-5 models spend hidden reasoning tokens, so a tiny budget
+            # would be consumed before any verdict is emitted. Keep headroom.
+            max_tokens=256,
         )
     except orc.OpenRouterError:
         return GuardResult(True)  # fail open

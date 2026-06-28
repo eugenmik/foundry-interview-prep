@@ -30,7 +30,7 @@ STORE_PATH = STORE_DIR / "seen.json"
 SIM_THRESHOLD = 0.86  # cosine similarity above which two items are "the same"
 
 
-def chunk_text(text: str, chunk_size: int = 600, overlap: int = 100) -> list[str]:
+def chunk_text(text: str, chunk_size: int = 90, overlap: int = 20) -> list[str]:
     """Split text into overlapping word-based chunks."""
     words = text.split()
     if not words:
