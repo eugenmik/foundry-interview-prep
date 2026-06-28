@@ -11,6 +11,7 @@ Run:  streamlit run app.py
 from __future__ import annotations
 
 import json
+import os
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -22,7 +23,46 @@ from src.i18n import LANGUAGES, t
 
 load_dotenv()
 
-st.set_page_config(page_title="Foundry Interview Prep", page_icon="🔥", layout="wide")
+# When deployed to Streamlit Community Cloud there is no .env file; secrets are
+# provided via st.secrets. Bridge them into the environment so the OpenRouter
+# client (which reads os.environ) works in both environments.
+try:
+    for _key in ("OPENROUTER_API_KEY", "OPENROUTER_APP_TITLE", "OPENROUTER_APP_URL"):
+        if _key in st.secrets and not os.environ.get(_key):
+            os.environ[_key] = str(st.secrets[_key])
+except Exception:  # st.secrets raises if no secrets file is present
+    pass
+
+GITHUB_URL = "https://github.com/eugenmik/foundry-interview-prep"
+
+st.set_page_config(page_title="Foundry Interview Prep", layout="wide")
+
+
+# ---------------------------------------------------------------------------
+# Theme: a runtime light/dark switch via injected CSS (Streamlit has no native
+# runtime theme API, so we override the relevant colours ourselves).
+# ---------------------------------------------------------------------------
+_DARK_CSS = """
+<style>
+.stApp { background-color: #0e1117; color: #e6e6e6; }
+section[data-testid="stSidebar"] { background-color: #161a23; }
+.stApp p, .stApp span, .stApp label, .stApp li,
+.stMarkdown, .stHeadingContainer, h1, h2, h3, h4 { color: #e6e6e6 !important; }
+[data-testid="stMetricValue"], [data-testid="stMetricLabel"] { color: #e6e6e6 !important; }
+.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {
+    background-color: #1c2230 !important; color: #e6e6e6 !important;
+}
+[data-testid="stExpander"] details { background-color: #161a23; border-color: #2a3142; }
+[data-testid="stChatMessage"] { background-color: #161a23; }
+.stDataFrame { background-color: #161a23; }
+</style>
+"""
+
+
+def apply_theme(theme: str) -> None:
+    """Inject dark-mode CSS when the dark theme is selected."""
+    if theme == "dark":
+        st.markdown(_DARK_CSS, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +71,7 @@ st.set_page_config(page_title="Foundry Interview Prep", page_icon="🔥", layout
 def init_state() -> None:
     defaults = {
         "lang": "en",
+        "theme": "light",
         "resume_text": "",
         "analysis": None,
         "questions": None,
@@ -61,14 +102,15 @@ def track_cost(result: orc.ChatResult) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Sidebar: language, mode, developer settings
+# Sidebar: language, mode, theme, developer settings
 # ---------------------------------------------------------------------------
 with st.sidebar:
     lang = st.selectbox(
-        "🌐 " + t(st.session_state.lang, "language"),
+        t(st.session_state.lang, "language"),
         options=list(LANGUAGES.keys()),
         format_func=lambda c: LANGUAGES[c],
         index=list(LANGUAGES.keys()).index(st.session_state.lang),
+        help=t(st.session_state.lang, "language_help"),
     )
     st.session_state.lang = lang
 
@@ -76,12 +118,26 @@ with st.sidebar:
         t(lang, "mode"),
         options=["candidate", "recruiter"],
         format_func=lambda m: t(lang, f"mode_{m}"),
+        help=t(lang, "mode_help"),
     )
+
+    theme = st.radio(
+        t(lang, "theme"),
+        options=["light", "dark"],
+        format_func=lambda x: t(lang, f"theme_{x}"),
+        index=["light", "dark"].index(st.session_state.theme),
+        horizontal=True,
+        help=t(lang, "theme_help"),
+    )
+    st.session_state.theme = theme
 
     st.divider()
     with st.expander(t(lang, "developer_settings"), expanded=False):
         st.caption(t(lang, "dev_hint"))
-        model_label = st.selectbox(t(lang, "model"), list(orc.CHAT_MODELS.keys()))
+        model_label = st.selectbox(
+            t(lang, "model"), list(orc.CHAT_MODELS.keys()),
+            help=t(lang, "model_help"),
+        )
         model = orc.CHAT_MODELS[model_label]
 
         tech_labels = prompts.technique_labels()
@@ -89,35 +145,48 @@ with st.sidebar:
             t(lang, "prompt_technique"),
             list(tech_labels.keys()),
             index=list(tech_labels.values()).index(prompts.DEFAULT_TECHNIQUE),
+            help=t(lang, "technique_help"),
         )
         technique = tech_labels[tech_label]
         st.caption(prompts.TECHNIQUES[technique]["description"])
 
-        temperature = st.slider(t(lang, "temperature"), 0.0, 2.0, 0.7, 0.1)
-        top_p = st.slider(t(lang, "top_p"), 0.0, 1.0, 1.0, 0.05)
-        frequency_penalty = st.slider(t(lang, "frequency_penalty"), -2.0, 2.0, 0.0, 0.1)
-        presence_penalty = st.slider(t(lang, "presence_penalty"), -2.0, 2.0, 0.0, 0.1)
+        temperature = st.slider(t(lang, "temperature"), 0.0, 2.0, 0.7, 0.1,
+                                help=t(lang, "temperature_help"))
+        top_p = st.slider(t(lang, "top_p"), 0.0, 1.0, 1.0, 0.05,
+                          help=t(lang, "top_p_help"))
+        frequency_penalty = st.slider(t(lang, "frequency_penalty"), -2.0, 2.0, 0.0, 0.1,
+                                      help=t(lang, "frequency_help"))
+        presence_penalty = st.slider(t(lang, "presence_penalty"), -2.0, 2.0, 0.0, 0.1,
+                                     help=t(lang, "presence_help"))
         # Minimum kept high: gpt-5 models spend hidden reasoning tokens, so a
         # low cap can leave no room for the actual (esp. JSON) answer.
-        max_tokens = st.slider(t(lang, "max_tokens"), 512, 6000, 2000, 128)
+        max_tokens = st.slider(t(lang, "max_tokens"), 512, 6000, 2000, 128,
+                               help=t(lang, "max_tokens_help"))
         reasoning_effort = st.selectbox(
-            "Reasoning effort (gpt-5)", ["low", "medium", "high"], index=0,
-            help="Hidden reasoning depth. 'low' is faster and cheaper.",
+            t(lang, "reasoning_effort"), ["low", "medium", "high"], index=0,
+            help=t(lang, "reasoning_help"),
         )
-        n_questions = st.slider("Number of questions", 4, 12, 8, 1)
+        n_questions = st.slider(t(lang, "n_questions"), 4, 12, 8, 1,
+                                help=t(lang, "n_questions_help"))
         persona = st.selectbox(
-            "Interviewer persona", list(prompts.INTERVIEWER_PERSONAS.keys())
+            t(lang, "persona"), list(prompts.INTERVIEWER_PERSONAS.keys()),
+            help=t(lang, "persona_help"),
         )
-        use_rag = st.checkbox(t(lang, "use_rag"), value=True)
-        use_llm_guard = st.checkbox("LLM moderation guard", value=False)
-        show_cost = st.checkbox(t(lang, "show_cost"), value=True)
+        use_rag = st.checkbox(t(lang, "use_rag"), value=True,
+                              help=t(lang, "use_rag_help"))
+        use_llm_guard = st.checkbox(t(lang, "llm_guard"), value=False,
+                                    help=t(lang, "llm_guard_help"))
+        show_cost = st.checkbox(t(lang, "show_cost"), value=True,
+                                help=t(lang, "show_cost_help"))
 
-    if st.button(t(lang, "reset")):
+    if st.button(t(lang, "reset"), help=t(lang, "reset_help")):
         for key in ("analysis", "questions", "recruiter_guide", "chat",
                     "interview_system", "judge_result", "total_cost", "last_usage"):
-            st.session_state[key] = None if key not in ("chat", "total_cost") else (
-                [] if key == "chat" else 0.0)
+            st.session_state[key] = [] if key == "chat" else (
+                0.0 if key == "total_cost" else None)
         st.rerun()
+
+apply_theme(st.session_state.theme)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +226,7 @@ with col_a:
             st.session_state.resume_text = resume_parser.extract_text(
                 uploaded.name, uploaded.getvalue()
             )
-            st.success(f"✓ {uploaded.name} ({len(st.session_state.resume_text)} chars)")
+            st.success(f"{uploaded.name} ({len(st.session_state.resume_text)} chars)")
         except (ValueError, RuntimeError) as exc:
             st.error(str(exc))
 with col_b:
@@ -179,7 +248,7 @@ resume_text = st.session_state.resume_text
 # ---------------------------------------------------------------------------
 # Analyze button — runs analysis + question generation (and recruiter guide)
 # ---------------------------------------------------------------------------
-if st.button("🚀 " + t(lang, "analyze_btn"), type="primary"):
+if st.button(t(lang, "analyze_btn"), type="primary"):
     if not resume_text or not resume_text.strip():
         st.warning(t(lang, "no_resume"))
     elif run_guards(resume_text, min_chars=security.MIN_RESUME_CHARS, field="resume"):
@@ -283,8 +352,8 @@ questions = st.session_state.questions
 if questions:
     st.subheader(t(lang, "questions_section"))
     for i, q in enumerate(questions, 1):
-        badge = "🆕 " if q.get("is_new") else "♻️ "
-        with st.expander(f"{badge}{i}. [{q['category']}] {q['question']}"):
+        badge = t(lang, "badge_new") if q.get("is_new") else t(lang, "badge_seen")
+        with st.expander(f"{i}. [{q['category']}] {q['question']}  ·  ({badge})"):
             st.markdown(f"*{t(lang, 'what_to_listen')}:* {q['what_to_listen_for']}")
 
 
@@ -300,7 +369,7 @@ if mode == "recruiter" and guide:
         st.markdown(f"**{t(lang, 'scorecard')}**")
         st.dataframe(guide["scorecard"], use_container_width=True)
     if guide.get("red_flags"):
-        st.markdown("**🚩**")
+        st.markdown(f"**{t(lang, 'red_flags')}**")
         for rf in guide["red_flags"]:
             st.markdown(f"- {rf}")
 
@@ -356,13 +425,7 @@ if mode == "candidate" and st.session_state.interview_system:
     # LLM-as-a-judge: evaluate the candidate's most recent answer.
     last_user = next((m["content"] for m in reversed(st.session_state.chat)
                       if m["role"] == "user"), None)
-    last_question = None
-    for m in st.session_state.chat:
-        if m["role"] == "assistant":
-            last_question = m["content"]
-        elif m["role"] == "user":
-            pass
-    if last_user and st.button("🧑‍⚖️ " + t(lang, "evaluate_btn")):
+    if last_user and st.button(t(lang, "evaluate_btn")):
         try:
             with st.spinner(t(lang, "judging")):
                 # Find the assistant question immediately preceding the last answer.
@@ -424,11 +487,11 @@ if analysis or questions:
         "judge_result": st.session_state.judge_result,
     }
     st.download_button(
-        "⬇️ " + t(lang, "download_report"),
+        t(lang, "download_report"),
         data=json.dumps(report, ensure_ascii=False, indent=2),
         file_name="interview_report.json",
         mime="application/json",
     )
 
 st.divider()
-st.caption(t(lang, "footer"))
+st.caption(f"{t(lang, 'footer_rights')} · [GitHub]({GITHUB_URL})")
