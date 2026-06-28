@@ -82,26 +82,47 @@ section[data-testid="stSidebar"] { background-color: #161a23; }
 [data-baseweb="select"] div { background-color: #1c2230 !important; color: #e6e6e6 !important; }
 .stTextInput input::placeholder, .stTextArea textarea::placeholder { color: #9aa3b2 !important; }
 
-/* all buttons readable */
-.stButton > button, .stDownloadButton > button {
+/* all buttons readable (descendant selector + version-proof testids) */
+.stButton button, .stDownloadButton button,
+[data-testid="stBaseButton-secondary"],
+[data-testid="baseButton-secondary"],
+[data-testid="stFileUploader"] button {
     background-color: #1c2230 !important; color: #e6e6e6 !important;
     border: 1px solid #3a4356 !important;
 }
-.stButton > button:hover, .stDownloadButton > button:hover {
-    border-color: #d35400 !important; color: #ffffff !important;
+.stButton button *, .stDownloadButton button *,
+[data-testid="stFileUploader"] button * { color: #e6e6e6 !important; }
+.stButton button:hover, .stDownloadButton button:hover,
+[data-testid="stFileUploader"] button:hover {
+    border-color: #d35400 !important; background-color: #262d3d !important;
 }
 /* primary action keeps the accent colour with white text */
-.stButton > button[kind="primary"],
+.stButton button[kind="primary"],
+[data-testid="stBaseButton-primary"],
 [data-testid="baseButton-primary"] {
-    background-color: #d35400 !important; color: #ffffff !important; border: none !important;
+    background-color: #d35400 !important; border: none !important;
 }
+.stButton button[kind="primary"] * ,
+[data-testid="stBaseButton-primary"] * { color: #ffffff !important; }
 
-/* file uploader */
+/* file uploader dropzone */
 [data-testid="stFileUploader"] section,
 [data-testid="stFileUploaderDropzone"] {
     background-color: #1c2230 !important; border-color: #3a4356 !important;
 }
-[data-testid="stFileUploader"] * { color: #e6e6e6 !important; }
+[data-testid="stFileUploader"] section span,
+[data-testid="stFileUploader"] section small { color: #e6e6e6 !important; }
+
+/* icons: help tooltips, sidebar collapse, header, expander chevrons */
+[data-testid="stTooltipIcon"] svg { fill: #9aa3b2 !important; }
+header[data-testid="stHeader"] svg,
+[data-testid="stSidebarCollapseButton"] svg,
+[data-testid="stExpandSidebarButton"] svg,
+[data-testid="stBaseButton-headerNoPadding"] svg,
+[data-testid="stFileUploader"] svg,
+[data-testid="stExpander"] summary svg,
+.stApp [data-baseweb="icon"] svg { fill: #e6e6e6 !important; }
+[data-testid="stIconMaterial"] { color: #e6e6e6 !important; }
 
 /* expander, chat, dataframe */
 [data-testid="stExpander"] details { background-color: #161a23; border-color: #2a3142; }
