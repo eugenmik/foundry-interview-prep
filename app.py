@@ -24,14 +24,32 @@ from src.i18n import LANGUAGES, t
 load_dotenv()
 
 # When deployed to Streamlit Community Cloud there is no .env file; secrets are
-# provided via st.secrets. Bridge them into the environment so the OpenRouter
-# client (which reads os.environ) works in both environments.
-try:
-    for _key in ("OPENROUTER_API_KEY", "OPENROUTER_APP_TITLE", "OPENROUTER_APP_URL"):
-        if _key in st.secrets and not os.environ.get(_key):
-            os.environ[_key] = str(st.secrets[_key])
-except Exception:  # st.secrets raises if no secrets file is present
-    pass
+# provided via st.secrets and are NOT injected into os.environ automatically.
+# Bridge every top-level secret into the environment so the OpenRouter client
+# (which reads os.environ) works unchanged locally and in the cloud. We capture
+# a diagnostic status so a misconfigured secrets file produces a helpful message
+# instead of a silent failure.
+def _bridge_secrets() -> str:
+    try:
+        secrets = st.secrets
+    except Exception as exc:  # no secrets file at all (e.g. local without .env)
+        return f"no secrets store ({type(exc).__name__})"
+    try:
+        items = dict(secrets)  # iterates the store; raises if missing/invalid TOML
+    except Exception as exc:
+        return (
+            "secrets could NOT be read — either none are set, or the TOML is "
+            f"invalid (values must be quoted strings): {exc}"
+        )
+    loaded = []
+    for key, value in items.items():
+        if isinstance(value, (str, int, float)) and not os.environ.get(key):
+            os.environ[key] = str(value)
+            loaded.append(key)
+    return f"loaded from secrets: {', '.join(loaded)}" if loaded else "secrets present, no string keys"
+
+
+SECRETS_STATUS = _bridge_secrets()
 
 GITHUB_URL = "https://github.com/eugenmik/foundry-interview-prep"
 
@@ -45,15 +63,51 @@ st.set_page_config(page_title="Foundry Interview Prep", layout="wide")
 _DARK_CSS = """
 <style>
 .stApp { background-color: #0e1117; color: #e6e6e6; }
+
+/* top header bar (was staying white) */
+header[data-testid="stHeader"] { background-color: #0e1117 !important; }
+header[data-testid="stHeader"] * { color: #e6e6e6 !important; fill: #e6e6e6 !important; }
+
+/* sidebar */
 section[data-testid="stSidebar"] { background-color: #161a23; }
+
+/* generic text */
 .stApp p, .stApp span, .stApp label, .stApp li,
-.stMarkdown, .stHeadingContainer, h1, h2, h3, h4 { color: #e6e6e6 !important; }
+.stMarkdown, .stHeadingContainer, h1, h2, h3, h4, h5, h6 { color: #e6e6e6 !important; }
 [data-testid="stMetricValue"], [data-testid="stMetricLabel"] { color: #e6e6e6 !important; }
-.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {
+
+/* inputs and selects */
+.stTextInput input, .stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] > div,
+[data-baseweb="select"] div { background-color: #1c2230 !important; color: #e6e6e6 !important; }
+.stTextInput input::placeholder, .stTextArea textarea::placeholder { color: #9aa3b2 !important; }
+
+/* all buttons readable */
+.stButton > button, .stDownloadButton > button {
     background-color: #1c2230 !important; color: #e6e6e6 !important;
+    border: 1px solid #3a4356 !important;
 }
+.stButton > button:hover, .stDownloadButton > button:hover {
+    border-color: #d35400 !important; color: #ffffff !important;
+}
+/* primary action keeps the accent colour with white text */
+.stButton > button[kind="primary"],
+[data-testid="baseButton-primary"] {
+    background-color: #d35400 !important; color: #ffffff !important; border: none !important;
+}
+
+/* file uploader */
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploaderDropzone"] {
+    background-color: #1c2230 !important; border-color: #3a4356 !important;
+}
+[data-testid="stFileUploader"] * { color: #e6e6e6 !important; }
+
+/* expander, chat, dataframe */
 [data-testid="stExpander"] details { background-color: #161a23; border-color: #2a3142; }
+[data-testid="stExpander"] summary { color: #e6e6e6 !important; }
 [data-testid="stChatMessage"] { background-color: #161a23; }
+[data-testid="stChatInput"] textarea { background-color: #1c2230 !important; color: #e6e6e6 !important; }
 .stDataFrame { background-color: #161a23; }
 </style>
 """
@@ -197,6 +251,14 @@ st.caption(t(lang, "app_caption"))
 
 if not orc.get_api_key():
     st.error(t(lang, "no_api_key"))
+    # Diagnostic for cloud deployments: show why the secret was not picked up.
+    st.caption(f"Secrets status: {SECRETS_STATUS}")
+    with st.expander("How to fix on Streamlit Community Cloud"):
+        st.markdown(
+            "Open **Manage app > Settings > Secrets** and add this line "
+            "(the value must be wrapped in double quotes), then **Reboot** the app:"
+        )
+        st.code('OPENROUTER_API_KEY = "sk-or-v1-your-key-here"', language="toml")
     st.stop()
 
 
